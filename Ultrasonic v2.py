@@ -18,7 +18,7 @@ GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
 
 def talker():
-    pub = rospy.Publisher('chatter', String, queue_size = 10) #output a string 10 times
+    pub = rospy.Publisher('avoidance', String, queue_size = 10) #output a string 10 times
     rospy.init_node('ultrasonic', anonymous = True) #name the node
     rate = rospy.Rate(2) #twice a second
 	
