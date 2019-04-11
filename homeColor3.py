@@ -13,7 +13,8 @@ import time
 import rospy
 from std_msgs.msg import String
 import math
-
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 
 def calculateDistance(x1,y1,x2,y2):  
 	#returns distance in pixels of contour from the center of the screen
@@ -96,6 +97,83 @@ def getContours(mask):
 	contours = imutils.grab_contours(contours)#according to opencv version
 
 	return contours
+def findLines(image):
+	#this method might only find straight lines not curved ones, but not able to test anyway
+	#use white mask and image to create new image with only white
+        masked = cv2.bitwise_and(image, image, mask = maskWhite)
+
+	# Convert to grayscale here.
+	grayImage = cv2.cvtColor(masked, cv2.COLOR_RGB2GRAY)
+	#apply gaussian blur to smooth edges
+	blurImage = cv2.GaussianBlur(grayImage, (11, 11), 0)
+	# Call Canny Edge Detection here. 
+'''	
+These two threshold values are empirically determined. Basically, you will need to define them by trials and errors.
+I first set the low_threshold to zero and then adjust the high_threshold. If high_threshold is too high, you find no edges. If high_threshold is too low, you find too many edges. Once you find a good high_threshold, adjust the low_threshold to discard the weak edges (noises) connected to the strong edges.
+'''
+	low_threshold = 100
+	high_threshold = 100
+	cannyed_image = cv2.Canny(blurImage, low_threshold, high_threshold)
+	#now apply Hough transforms to detect the lines from image
+	lines = cv2.HoughLinesP(#need to adjust these parameters in testing
+	    cropped_image,
+	    rho=6,
+	    theta=np.pi / 60,
+	    threshold=160,
+	    lines=np.array([]),
+	    minLineLength=40,
+	    maxLineGap=25
+	)
+	return lines
+	#Each line is represented by four numbers, which are the two endpoints of the detected line segment, like so
+	#[x1, y1, x2, y2]
+def average_slope_intercept(lines):
+    lines    = [] # (slope, intercept)
+    weights  = [] # (length,)
+    
+    for line in lines:
+        for x1, y1, x2, y2 in line:
+            if x2==x1:
+                continue # ignore a vertical line
+            slope = (y2-y1)/(x2-x1)
+            intercept = y1 - slope*x1
+            length = np.sqrt((y2-y1)**2+(x2-x1)**2)
+ 
+    # add more weight to longer lines    
+    lane  = np.dot(weights, lines) /np.sum(weights)  if len(weights) >0 else None
+    
+    return lane # (slope, intercept)
+
+def make_line_points(y1, y2, line):
+    """
+    Convert a line represented in slope and intercept into pixel points
+    """
+    if line is None:
+        return None
+    
+    slope, intercept = line
+    
+    # make sure everything is integer as cv2.line requires it
+    x1 = int((y1 - intercept)/slope)
+    x2 = int((y2 - intercept)/slope)
+    y1 = int(y1)
+    y2 = int(y2)
+    
+    return ((x1, y1), (x2, y2))
+def lane_lines(image, lines):
+    lane = average_slope_intercept(lines)
+    
+    y1 = image.shape[0] # bottom of the image
+    y2 = 0         # top of image
+
+    line  = make_line_points(y1, y2, lane)
+    
+    return line
+def fLines(image):
+	#function that combines the lines functions above
+	lines = findlines(image)
+	line = lane_lines(image_lines) # returns ((x1, y1), (x2, y2)) of the biggest line(I think)
+	return line
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--imagePath", required=True,
@@ -110,6 +188,7 @@ args = vars(ap.parse_args())
 image = cv2.imread(args['imagePath'])
 
 image = imutils.resize(image, width=600) #for faster processing
+image = cv2.GaussianBlur(image, (11, 11), 0)
 hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
 #bgr format
@@ -187,6 +266,9 @@ above = -1
 left = objectLeft(imageCenterX, objX)
 above = objectAbove(imageCenterY, objY)
 
+line = fLines(hsv) #should find the biggest line, maybe of form ((x1, y1), (x2, y2))
+
+'''
 #attempt to find center of line by finding the second largest white contour
 
 cntsWhite = getContours(maskWhite)
@@ -209,8 +291,8 @@ if len(cntsWhite) > 2: #if camera sees wall and line
 	c = sortedCnts[1][1]
 	((x, y), radius) = cv2.minEnclosingCircle(c)
         M = cv2.moments(cntsWhite)  #a moment is a particular weighted average of image pixel intensities
-	'''if M["m00"] == 0:#prevents crash if small contours are present
-            continue
+	'''#if M["m00"] == 0:#prevents crash if small contours are present
+            #continue
 	'''        
 	centerWhite = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
 #now we have the x, y of the center of the white line.
@@ -220,16 +302,16 @@ if len(cntsWhite) > 2:
 else:#in the case it isn't detected
 	lineX = -1
 	lineY = -1
-
+'''
 
 #printing for testing purposes
 print(left, above) #position of obj relative to center
 print(num) #home color
-print(lineX, lineY) # line position
+#print(lineX, lineY) # line position
 #cv2.drawContours(image, cntsColor, -1, (0,255,0), 3)#draw home color contour
 cv2.drawContours(image, sortedCnts[1][1], -1, (0,255,0), 3)#draw white color contour
 cv2.imshow("Original", image)
-cv2.imshow("Home mask", maskWhite)
+cv2.imshow("Home mask", homeColorMask)
 #cv2.imshow("Yellow", maskYellow)
 #cv2.imshow("Red", maskRed)
 #cv2.imshow("Green", maskGreen)
